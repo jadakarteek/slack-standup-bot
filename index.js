@@ -11,7 +11,7 @@ const standupMessageMap = new Map();
  * Google Sheets setup
  ***********************/
 const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  keyFile: 'google-service-account.json',
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
@@ -107,18 +107,54 @@ async function sendStandupDM(userId) {
 app.action('open_standup_modal', async ({ ack, body, client }) => {
   await ack();
 
+  const userId = body.user.id;
+  const username = body.user.username;
+
+  // 🚫 Check BEFORE opening modal
+  const alreadySubmitted = await hasUserSubmittedToday(username);
+
+  if (alreadySubmitted) {
+    // 🔁 Update the original message to remove the button
+    await client.chat.update({
+      channel: body.channel.id,
+      ts: body.message.ts,
+      text: '✅ Standup already submitted',
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '✅ *You’ve already submitted today’s standup.*\nThanks!',
+          },
+        },
+      ],
+    });
+
+    return; // ❌ Do NOT open modal
+  }
+
+  // ✅ Otherwise, open modal
   await client.views.open({
     trigger_id: body.trigger_id,
     view: {
       type: 'modal',
       callback_id: 'standup_modal',
-      title: { type: 'plain_text', text: 'Daily Standup' },
-      submit: { type: 'plain_text', text: 'Submit' },
+      title: {
+        type: 'plain_text',
+        text: 'Daily Standup',
+      },
+      submit: {
+        type: 'plain_text',
+        text: 'Submit',
+      },
       blocks: [
         {
           type: 'input',
           block_id: 'yesterday',
-          label: { type: 'plain_text', text: 'Yesterday' },
+          label: {
+            type: 'plain_text',
+            text: 'Yesterday',
+          },
           element: {
             type: 'plain_text_input',
             multiline: true,
@@ -128,7 +164,10 @@ app.action('open_standup_modal', async ({ ack, body, client }) => {
         {
           type: 'input',
           block_id: 'today',
-          label: { type: 'plain_text', text: 'Today' },
+          label: {
+            type: 'plain_text',
+            text: 'Today',
+          },
           element: {
             type: 'plain_text_input',
             multiline: true,
@@ -138,7 +177,10 @@ app.action('open_standup_modal', async ({ ack, body, client }) => {
         {
           type: 'input',
           block_id: 'blockers',
-          label: { type: 'plain_text', text: 'Blockers' },
+          label: {
+            type: 'plain_text',
+            text: 'Blockers',
+          },
           element: {
             type: 'plain_text_input',
             multiline: true,
@@ -149,48 +191,12 @@ app.action('open_standup_modal', async ({ ack, body, client }) => {
     },
   });
 });
-
-/***********************
- * Save to Google Sheets
- ***********************/
 app.view('standup_modal', async ({ ack, body, view }) => {
-  const username = body.user.username;
-
-  // 🚫 Check if already submitted today
-  const alreadySubmitted = await hasUserSubmittedToday(username);
-
-  if (alreadySubmitted) {
-    await ack({
-      response_action: 'errors',
-      errors: {
-        yesterday: 'You have already submitted today’s standup.',
-      },
-    });
-    return;
-  }
-const messageInfo = standupMessageMap.get(body.user.id);
-
-if (messageInfo) {
-  await app.client.chat.update({
-    channel: messageInfo.channel,
-    ts: messageInfo.ts,
-    text: '✅ Standup submitted',
-    blocks: [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '✅ *Standup submitted*\nThanks! You’re all set for today.',
-        },
-      },
-    ],
-  });
-}
-
-  // ✅ Allow submission
   await ack();
 
+  const username = body.user.username;
   const values = view.state.values;
+
   const yesterday = values.yesterday.value.value;
   const today = values.today.value.value;
   const blockers = values.blockers.value.value;
