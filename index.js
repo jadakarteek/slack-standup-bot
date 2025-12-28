@@ -2,6 +2,10 @@ require('dotenv').config();
 const { App } = require('@slack/bolt');
 const { google } = require('googleapis');
 const cron = require('node-cron');
+// Store standup message reference per user (for today)
+const standupMessageMap = new Map();
+// userId -> { channel, ts }
+
 
 /***********************
  * Google Sheets setup
@@ -64,7 +68,7 @@ async function sendStandupDM(userId) {
     users: userId,
   });
 
-  await app.client.chat.postMessage({
+  const result = await app.client.chat.postMessage({
     channel: dm.channel.id,
     text: '🧍 Daily Standup',
     blocks: [
@@ -88,7 +92,14 @@ async function sendStandupDM(userId) {
       },
     ],
   });
+
+  // 👇 Return channel + ts so we can update it later
+  return {
+    channel: dm.channel.id,
+    ts: result.ts,
+  };
 }
+
 
 /***********************
  * Open Modal
@@ -157,6 +168,24 @@ app.view('standup_modal', async ({ ack, body, view }) => {
     });
     return;
   }
+const messageInfo = standupMessageMap.get(body.user.id);
+
+if (messageInfo) {
+  await app.client.chat.update({
+    channel: messageInfo.channel,
+    ts: messageInfo.ts,
+    text: '✅ Standup submitted',
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '✅ *Standup submitted*\nThanks! You’re all set for today.',
+        },
+      },
+    ],
+  });
+}
 
   // ✅ Allow submission
   await ack();
@@ -231,7 +260,8 @@ cron.schedule(
     console.log('⏰ Sending daily standups');
 
     for (const userId of TEAM_MEMBERS) {
-      await sendStandupDM(userId);
+      const messageInfo = await sendStandupDM(userId);
+standupMessageMap.set(userId, messageInfo);
     }
   },
   {
