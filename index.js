@@ -37,15 +37,7 @@ const cron = require('node-cron');
 const TEAM_MEMBERS = [
   'U0A5MEBJ4R0', // replace with real IDs
   // add more users here
-console.log(
-  'SUMMARY CHECK',
-  'submittedUsers:',
-  [...submittedUsers]
-);
-
-
 ];
-
 
 /***********************
  * Google Sheets setup
