@@ -7,11 +7,12 @@ const cron = require('node-cron');
  * Google Sheets setup
  ***********************/
 const auth = new google.auth.GoogleAuth({
-  keyFile: 'google-service-account.json',
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
 const sheets = google.sheets({ version: 'v4', auth });
+
 
 // 👉 PUT YOUR SHEET ID HERE
 const SPREADSHEET_ID = '1WVQ0qMqFjcl8tbYae9boXJyHcQp1bG2Pc8SjmPgllcc';
