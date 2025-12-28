@@ -37,6 +37,13 @@ const cron = require('node-cron');
 const TEAM_MEMBERS = [
   'U0A5MEBJ4R0', // replace with real IDs
   // add more users here
+console.log(
+  'SUMMARY CHECK',
+  'submittedUsers:',
+  [...submittedUsers]
+);
+
+
 ];
 
 
@@ -44,7 +51,7 @@ const TEAM_MEMBERS = [
  * Google Sheets setup
  ***********************/
 const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  keyFile: 'google-service-account.json',
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
@@ -183,7 +190,7 @@ await app.client.chat.postMessage({
 })();
 // Send standup every 2 minutes (for testing)
 cron.schedule(
- '*/2 * * * *',
+ '*/ * * * *',
  //'0 9 * * 1-5',
 
   async () => {
