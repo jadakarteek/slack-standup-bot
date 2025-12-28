@@ -1,6 +1,63 @@
 require('dotenv').config();
 const { App } = require('@slack/bolt');
 const { google } = require('googleapis');
+const cron = require('node-cron');
+
+/***********************
+ * Google Sheets setup
+ ***********************/
+const auth = new google.auth.GoogleAuth({
+  keyFile: 'google-service-account.json',
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+
+const sheets = google.sheets({ version: 'v4', auth });
+
+// 👉 PUT YOUR SHEET ID HERE
+const SPREADSHEET_ID = '1WVQ0qMqFjcl8tbYae9boXJyHcQp1bG2Pc8SjmPgllcc';
+
+/***********************
+ * Slack App setup
+ ***********************/
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: true,
+  appToken: process.env.SLACK_APP_TOKEN,
+});
+
+// 👉 for now (testing)
+const YOUR_USER_ID = 'U0A5MEBJ4R0';
+
+// Team members who should get standup (Slack User IDs)
+const TEAM_MEMBERS = [
+  'U0A5MEBJ4R0', // replace with real IDs
+  // add more users here
+];
+
+function todayIST() {
+  return new Date().toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+  });
+}
+
+async function hasUserSubmittedToday(username) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'A:F',
+  });
+
+  const rows = res.data.values || [];
+  const today = todayIST();
+
+  return rows.some(
+    (row, index) =>
+      index !== 0 && // skip header
+      row[0] === today &&
+      row[1] === username
+  );
+}
+
 async function sendStandupDM(userId) {
   const dm = await app.client.conversations.open({
     users: userId,
@@ -31,39 +88,6 @@ async function sendStandupDM(userId) {
     ],
   });
 }
-
-const cron = require('node-cron');
-// Team members who should get standup (Slack User IDs)
-const TEAM_MEMBERS = [
-  'U0A5MEBJ4R0', // replace with real IDs
-  // add more users here
-];
-
-/***********************
- * Google Sheets setup
- ***********************/
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'google-service-account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
-const sheets = google.sheets({ version: 'v4', auth });
-
-// 👉 PUT YOUR SHEET ID HERE
-const SPREADSHEET_ID = '1WVQ0qMqFjcl8tbYae9boXJyHcQp1bG2Pc8SjmPgllcc';
-
-/***********************
- * Slack App setup
- ***********************/
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN,
-});
-
-// 👉 for now (testing)
-const YOUR_USER_ID = 'U0A5MEBJ4R0';
 
 /***********************
  * Open Modal
@@ -118,28 +142,44 @@ app.action('open_standup_modal', async ({ ack, body, client }) => {
  * Save to Google Sheets
  ***********************/
 app.view('standup_modal', async ({ ack, body, view }) => {
+  const username = body.user.username;
+
+  // 🚫 Check if already submitted today
+  const alreadySubmitted = await hasUserSubmittedToday(username);
+
+  if (alreadySubmitted) {
+    await ack({
+      response_action: 'errors',
+      errors: {
+        yesterday: 'You have already submitted today’s standup.',
+      },
+    });
+    return;
+  }
+
+  // ✅ Allow submission
   await ack();
 
-  const user = body.user.username;
   const values = view.state.values;
-
   const yesterday = values.yesterday.value.value;
   const today = values.today.value.value;
   const blockers = values.blockers.value.value;
 
-  const date = new Date().toLocaleDateString();
-  const time = new Date().toLocaleTimeString();
+  const date = todayIST();
+  const time = new Date().toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+  });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
     range: 'A:F',
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[date, user, yesterday, today, blockers, time]],
+      values: [[date, username, yesterday, today, blockers, time]],
     },
   });
 
-  console.log('✅ Standup saved to Google Sheets');
+  console.log(`✅ Standup saved for ${username}`);
 });
 
 /***********************
@@ -150,40 +190,41 @@ app.view('standup_modal', async ({ ack, body, view }) => {
   console.log('⚡ Standup Bot is running');
 
   // Open a DM channel with the user
-const dm = await app.client.conversations.open({
-  users: YOUR_USER_ID,
-});
+  const dm = await app.client.conversations.open({
+    users: YOUR_USER_ID,
+  });
 
-// Send the standup message to the DM channel
-await app.client.chat.postMessage({
-  channel: dm.channel.id,
-  text: '🧍 Daily Standup',
-  blocks: [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: '*🧍 Daily Standup*\nClick below to submit your standup',
-      },
-    },
-    {
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: 'Fill Standup' },
-          style: 'primary',
-          action_id: 'open_standup_modal',
+  // Send the standup message to the DM channel
+  await app.client.chat.postMessage({
+    channel: dm.channel.id,
+    text: '🧍 Daily Standup',
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🧍 Daily Standup*\nClick below to submit your standup',
         },
-      ],
-    },
-  ],
-});
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Fill Standup' },
+            style: 'primary',
+            action_id: 'open_standup_modal',
+          },
+        ],
+      },
+    ],
+  });
 })();
+
 // Send standup every 2 minutes (for testing)
 cron.schedule(
- '*/ * * * *',
- //'0 9 * * 1-5',
+  '*/2 * * * *',
+  //'0 9 * * 1-5',
 
   async () => {
     console.log('⏰ Sending daily standups');
