@@ -44,7 +44,7 @@ const TEAM_MEMBERS = [
  * Google Sheets setup
  ***********************/
 const auth = new google.auth.GoogleAuth({
-  keyFile: 'google-service-account.json',
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
