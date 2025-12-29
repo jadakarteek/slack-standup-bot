@@ -259,8 +259,8 @@ app.view('standup_modal', async ({ ack, body, view }) => {
 
 // Send standup every 2 minutes (for testing)
 cron.schedule(
-  '*/2 * * * *',
-  //'0 9 * * 1-5',
+  //'*/2 * * * *',
+  '0 9 * * 1-5',
 
   async () => {
     console.log('⏰ Sending daily standups');
